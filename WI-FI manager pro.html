@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>📡 WiFi Manager Pro</title>
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="description" content="WiFi Manager Pro v2.0 — мобильный менеджер Wi-Fi сетей" />
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: #0d1117; font-family: 'Consolas', 'Courier New', monospace; overflow-x: hidden; }
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #0d1117; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 #3fb95044; } 50% { box-shadow: 0 0 0 8px #3fb95000; } }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    .pulse-dot { animation: pulse 2s infinite; }
+    input:focus { outline: none; border-color: #58a6ff !important; }
+    button:active { transform: scale(0.97); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const C = {
+  bg: "#0d1117", panel: "#161b22", border: "#30363d",
+  accent: "#58a6ff", green: "#3fb950", warn: "#f0883e", danger: "#f85149",
+  text: "#e6edf3", sub: "#8b949e", purple: "#bc8cff",
+};
+
+const NETS = [
+  { ssid:"HomeNetwork_5G",   bssid:"A4:2B:8C:1D:4E:FF", signal:92, auth:"WPA3", cipher:"CCMP", channel:"36", band:"5GHz" },
+  { ssid:"OfficeWifi",       bssid:"BC:97:E1:03:AB:22", signal:78, auth:"WPA2", cipher:"CCMP", channel:"6",  band:"2.4GHz" },
+  { ssid:"Neighbor_Net",     bssid:"D8:07:B6:88:CC:11", signal:55, auth:"WPA2", cipher:"TKIP", channel:"11", band:"2.4GHz" },
+  { ssid:"CoffeeShop_Free",  bssid:"F0:18:98:3C:7D:44", signal:41, auth:"Open", cipher:"None", channel:"1",  band:"2.4GHz" },
+  { ssid:"AndroidAP_5544",   bssid:"22:FD:AB:11:2C:88", signal:28, auth:"WPA2", cipher:"CCMP", channel:"44", band:"5GHz" },
+  { ssid:"<Скрытая>",        bssid:"99:AA:BB:CC:DD:EE", signal:15, auth:"WPA2", cipher:"CCMP", channel:"13", band:"2.4GHz" },
+];
+
+const PROFILES = [
+  { name:"HomeNetwork_5G", auth:"WPA3", connected:true,  pass:"SuperSecure#2024" },
+  { name:"OfficeWifi",     auth:"WPA2", connected:false, pass:"Office@Pass123" },
+  { name:"CoffeeShop",     auth:"Open", connected:false, pass:null },
+  { name:"GrandmaHouse",   auth:"WPA2", connected:false, pass:"qwerty12345" },
+];
+
+const sc = s => s>=60 ? C.green : s>=30 ? C.warn : C.danger;
+
+function Bars({ s }) {
+  const filled = s>=80?4:s>=60?3:s>=40?2:s>=20?1:0;
+  return <span style={{fontSize:13,letterSpacing:1}}>
+    {[1,2,3,4].map(i=><span key={i} style={{color:i<=filled?sc(s):C.border,fontWeight:"bold"}}>▌</span>)}
+  </span>;
+}
+
+function Badge({ auth }) {
+  const color = auth==="WPA3"?C.green:auth==="WPA2"?C.accent:auth==="Open"?C.warn:C.sub;
+  return <span style={{fontSize:10,padding:"2px 7px",borderRadius:5,background:color+"22",
+    color,border:`1px solid ${color}44`,fontWeight:700}}>{auth}</span>;
+}
+
+function Graph({ history, h=90 }) {
+  const W=300, pad=8, padL=28;
+  if(history.length<2) return <div style={{height:h,background:C.panel,borderRadius:8}}/>;
+  const pts = history.map((v,i)=>[
+    padL+((W-padL-pad)*i)/(history.length-1),
+    h-pad-((h-2*pad)*v)/100
+  ]);
+  const area = `${padL},${h-pad} `+pts.map(([x,y])=>`${x},${y}`).join(" ")+` ${pts[pts.length-1][0]},${h-pad}`;
+  const line = pts.map(([x,y])=>`${x},${y}`).join(" ");
+  const [lx,ly] = pts[pts.length-1];
+  return <svg width="100%" viewBox={`0 0 ${W} ${h}`} style={{display:"block"}}>
+    <rect width={W} height={h} fill={C.panel} rx={8}/>
+    {[25,50,75,100].map(p=>{
+      const y=h-pad-((h-2*pad)*p)/100;
+      return <g key={p}>
+        <line x1={padL} y1={y} x2={W-pad} y2={y} stroke={C.border} strokeDasharray="4 4"/>
+        <text x={2} y={y+4} fill={C.sub} fontSize={9}>{p}%</text>
+      </g>;
+    })}
+    <polygon points={area} fill={C.accent+"28"}/>
+    <polyline points={line} fill="none" stroke={C.accent} strokeWidth={2} strokeLinejoin="round"/>
+    <circle cx={lx} cy={ly} r={4} fill={C.accent} stroke={C.bg} strokeWidth={2}/>
+    <text x={lx+6} y={ly+4} fill={C.accent} fontSize={9}>{history[history.length-1]}%</text>
+  </svg>;
+}
+
+function Toast({ msg, color }) {
+  return <div style={{position:"fixed",top:68,left:"50%",transform:"translateX(-50%)",zIndex:9999,
+    background:color,color:C.bg,padding:"10px 22px",borderRadius:12,fontSize:13,fontWeight:700,
+    boxShadow:"0 4px 24px #0009",whiteSpace:"nowrap"}}>{msg}</div>;
+}
+
+function Card({ children, style={} }) {
+  return <div style={{background:C.panel,borderRadius:16,padding:16,border:`1px solid ${C.border}`,...style}}>
+    {children}
+  </div>;
+}
+
+// ── Dashboard ──
+function Dashboard({ setToast }) {
+  const [pulse, setPulse] = useState(false);
+  const [pinging, setPinging] = useState(false);
+  const [pingRes, setPingRes] = useState(null);
+  const sig = 92;
+
+  useEffect(()=>{
+    const t=setInterval(()=>setPulse(p=>!p),1500);
+    return ()=>clearInterval(t);
+  },[]);
+
+  const ping = () => {
+    setPinging(true); setPingRes(null);
+    setTimeout(()=>{
+      const ms=Math.floor(Math.random()*18)+4;
+      setPingRes(ms); setPinging(false);
+    },1600);
+  };
+
+  const ipInfo = [
+    ["IPv4","192.168.1.42"],["Маска","255.255.255.0"],
+    ["Шлюз","192.168.1.1"],["DNS","8.8.8.8"],
+  ];
+
+  return <div style={{display:"flex",flexDirection:"column",gap:12}} className="fade-in">
+    <Card style={{position:"relative",overflow:"hidden"}}>
+      <div style={{position:"absolute",top:-30,right:-30,width:120,height:120,borderRadius:"50%",background:`${sc(sig)}18`}}/>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <div className="pulse-dot" style={{width:9,height:9,borderRadius:"50%",background:C.green}}/>
+        <span style={{color:C.sub,fontSize:12}}>Подключено</span>
+      </div>
+      <div style={{fontSize:21,fontWeight:700,color:C.text,marginBottom:2}}>HomeNetwork_5G</div>
+      <div style={{fontSize:11,color:C.sub,marginBottom:14}}>A4:2B:8C:1D:4E:FF</div>
+      <div style={{display:"flex",alignItems:"center",gap:16}}>
+        <div>
+          <div style={{fontSize:38,fontWeight:800,color:sc(sig),lineHeight:1}}>{sig}%</div>
+          <div style={{fontSize:11,color:C.sub}}>сигнал</div>
+        </div>
+        <div style={{fontSize:26}}><Bars s={sig}/></div>
+      </div>
+    </Card>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      {ipInfo.map(([k,v])=>(
+        <Card key={k} style={{padding:"12px 14px"}}>
+          <div style={{fontSize:11,color:C.sub,marginBottom:4}}>{k}</div>
+          <div style={{fontSize:13,color:C.text,fontWeight:600}}>{v}</div>
+        </Card>
+      ))}
+    </div>
+
+    <Card>
+      <div style={{fontSize:12,color:C.sub,marginBottom:10}}>⚡ Быстрые действия</div>
+      <button onClick={ping} disabled={pinging} style={{width:"100%",padding:"13px 0",borderRadius:10,
+        border:"none",background:pinging?C.border:C.accent,color:pinging?C.sub:C.bg,
+        fontSize:14,fontWeight:700,cursor:pinging?"default":"pointer",marginBottom:8}}>
+        {pinging?"⏳ Пинг 8.8.8.8...":"📶 Пинг шлюза (8.8.8.8)"}
+      </button>
+      {pingRes && <div style={{textAlign:"center",fontSize:13,color:C.green}}>
+        ✅ Ответ за {pingRes} мс — отличное соединение
+      </div>}
+    </Card>
+
+    <Card>
+      <div style={{fontSize:12,color:C.sub,marginBottom:8}}>📡 Адаптер</div>
+      {[["Стандарт","802.11ac (Wi-Fi 5)"],["Канал","36 / 5 GHz"],["Тип радио","802.11ac"],["Безопасность","WPA3-SAE"]].map(([k,v])=>(
+        <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}22`}}>
+          <span style={{fontSize:12,color:C.sub}}>{k}</span>
+          <span style={{fontSize:12,color:C.text,fontWeight:600}}>{v}</span>
+        </div>
+      ))}
+    </Card>
+  </div>;
+}
+
+// ── Networks ──
+function Networks({ setToast }) {
+  const [nets, setNets] = useState(NETS);
+  const [scanning, setScanning] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("signal");
+  const [sel, setSel] = useState(null);
+
+  const scan = () => {
+    setScanning(true);
+    setTimeout(()=>{
+      setNets(NETS.map(n=>({...n,signal:Math.max(10,Math.min(98,n.signal+Math.floor(Math.random()*12)-6))})));
+      setScanning(false);
+    },1800);
+  };
+
+  const filtered = nets
+    .filter(n=>n.ssid.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>sortBy==="signal"?b.signal-a.signal:a.ssid.localeCompare(b.ssid));
+
+  return <div style={{display:"flex",flexDirection:"column",gap:10}} className="fade-in">
+    <div style={{display:"flex",gap:8}}>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Поиск сети..."
+        style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,
+          background:C.panel,color:C.text,fontSize:13}}/>
+      <button onClick={()=>setSortBy(s=>s==="signal"?"name":"signal")}
+        style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,
+          background:C.panel,color:C.accent,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"}}>
+        {sortBy==="signal"?"📶 Сигнал":"🔤 Имя"}
+      </button>
+    </div>
+
+    <button onClick={scan} disabled={scanning} style={{width:"100%",padding:"12px 0",borderRadius:10,
+      border:`1px solid ${scanning?C.border:C.accent}`,background:scanning?C.panel:"transparent",
+      color:scanning?C.sub:C.accent,fontSize:14,fontWeight:700,cursor:scanning?"default":"pointer"}}>
+      {scanning
+        ? <span>⏳ Сканирование... <span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⟳</span></span>
+        : "🔄 Обновить список сетей"}
+    </button>
+
+    <div style={{fontSize:11,color:C.sub}}>Найдено: {filtered.length} / {nets.length} сетей</div>
+
+    {filtered.map(n=>(
+      <div key={n.bssid} onClick={()=>setSel(sel?.bssid===n.bssid?null:n)}
+        style={{background:C.panel,borderRadius:14,padding:14,cursor:"pointer",
+          border:`1px solid ${sel?.bssid===n.bssid?C.accent:C.border}`,transition:"border-color 0.2s"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{fontSize:15,fontWeight:700,color:C.text,flex:1,marginRight:8}}>{n.ssid}</div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <Bars s={n.signal}/>
+            <span style={{fontSize:13,fontWeight:700,color:sc(n.signal)}}>{n.signal}%</span>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <Badge auth={n.auth}/>
+          <span style={{fontSize:11,color:C.sub}}>CH {n.channel}</span>
+          <span style={{fontSize:11,color:C.sub}}>{n.band}</span>
+        </div>
+        {sel?.bssid===n.bssid && (
+          <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{fontSize:11,color:C.sub}}>BSSID: {n.bssid}</div>
+            <div style={{fontSize:11,color:C.sub}}>Шифр: {n.cipher}</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={e=>{e.stopPropagation();setToast({msg:`🔗 Подключение к ${n.ssid}`,color:C.accent});}}
+                style={{flex:1,padding:"10px 0",borderRadius:8,border:"none",background:C.accent,
+                  color:C.bg,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                🔗 Подключиться
+              </button>
+              <button onClick={e=>{e.stopPropagation();try{navigator.clipboard.writeText(n.ssid);}catch(e){}setToast({msg:"📋 SSID скопирован",color:C.green});}}
+                style={{flex:1,padding:"10px 0",borderRadius:8,border:`1px solid ${C.border}`,
+                  background:"transparent",color:C.text,fontSize:13,cursor:"pointer"}}>
+                📋 Копировать
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    ))}
+  </div>;
+}
+
+// ── Monitor ──
+function Monitor() {
+  const [running, setRunning] = useState(false);
+  const [history, setHistory] = useState([60,65,70,72,75,78,80,82,85,87,83,80,79,82,85]);
+  const [log, setLog] = useState([]);
+  const ref = useRef(null);
+
+  const toggle = () => {
+    if(running) { clearInterval(ref.current); setRunning(false); }
+    else {
+      setRunning(true);
+      ref.current = setInterval(()=>{
+        const s=Math.max(20,Math.min(98,history[history.length-1]+Math.floor(Math.random()*14)-7));
+        const ts=new Date().toLocaleTimeString("ru-RU");
+        setHistory(h=>[...h.slice(-29),s]);
+        setLog(l=>[`[${ts}]  HomeNetwork_5G   ${s}%  ${"█".repeat(Math.floor(s/25))}${"░".repeat(4-Math.floor(s/25))}`,...l.slice(0,49)]);
+      },2000);
+    }
+  };
+
+  useEffect(()=>()=>clearInterval(ref.current),[]);
+
+  const avg = history.length ? Math.round(history.reduce((a,b)=>a+b)/history.length) : 0;
+  const mn = Math.min(...history), mx = Math.max(...history);
+
+  return <div style={{display:"flex",flexDirection:"column",gap:12}} className="fade-in">
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+      {[["Avg",avg,C.accent],["Min",mn,C.warn],["Max",mx,C.green]].map(([l,v,c])=>(
+        <Card key={l} style={{textAlign:"center",padding:"12px 0"}}>
+          <div style={{fontSize:28,fontWeight:800,color:c}}>{v}%</div>
+          <div style={{fontSize:11,color:C.sub}}>{l}</div>
+        </Card>
+      ))}
+    </div>
+
+    <Card>
+      <div style={{fontSize:12,color:C.sub,marginBottom:8}}>📊 График сигнала ({history.length} точек)</div>
+      <Graph history={history} h={100}/>
+    </Card>
+
+    <button onClick={toggle} style={{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+      background:running?C.danger:C.green,color:C.bg,fontSize:15,fontWeight:700,cursor:"pointer"}}>
+      {running?"⏹ Остановить мониторинг":"▶ Запустить мониторинг"}
+    </button>
+
+    {log.length>0 && (
+      <Card>
+        <div style={{fontSize:12,color:C.sub,marginBottom:8}}>📝 Лог ({log.length} записей)</div>
+        <div style={{maxHeight:180,overflow:"auto",display:"flex",flexDirection:"column",gap:2}}>
+          {log.map((line,i)=>(
+            <div key={i} style={{fontSize:11,color:i===0?C.accent:C.sub,padding:"1px 0"}}>{line}</div>
+          ))}
+        </div>
+      </Card>
+    )}
+  </div>;
+}
+
+// ── Profiles ──
+function Profiles({ setToast }) {
+  const [sel, setSel] = useState(null);
+  const [show, setShow] = useState({});
+
+  return <div style={{display:"flex",flexDirection:"column",gap:10}} className="fade-in">
+    <div style={{fontSize:11,color:C.sub}}>Сохранено профилей: {PROFILES.length}</div>
+    {PROFILES.map(p=>(
+      <div key={p.name} onClick={()=>setSel(sel===p.name?null:p.name)}
+        style={{background:C.panel,borderRadius:14,padding:14,cursor:"pointer",
+          border:`1px solid ${sel===p.name?C.accent:C.border}`,transition:"border-color 0.2s"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>{p.connected?"📶":"💾"}</span>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:p.connected?C.green:C.text}}>{p.name}</div>
+              <div style={{fontSize:11,color:C.sub}}>{p.auth}</div>
+            </div>
+          </div>
+          {p.connected && <span style={{fontSize:11,color:C.green,background:C.green+"22",
+            padding:"3px 8px",borderRadius:6}}>● Активно</span>}
+        </div>
+
+        {sel===p.name && (
+          <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8}}>
+            {p.pass && (
+              <div style={{background:C.bg,borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontSize:11,color:C.sub,marginBottom:4}}>🔑 Пароль</div>
+                <div style={{fontSize:14,color:C.purple,letterSpacing:show[p.name]?0:4}}>
+                  {show[p.name]?p.pass:"●".repeat(p.pass.length)}
+                </div>
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {p.pass && <>
+                <button onClick={e=>{e.stopPropagation();setShow(s=>({...s,[p.name]:!s[p.name]}));}}
+                  style={{flex:1,padding:"9px 0",borderRadius:8,border:`1px solid ${C.purple}`,
+                    background:"transparent",color:C.purple,fontSize:12,cursor:"pointer"}}>
+                  {show[p.name]?"🙈 Скрыть":"👁 Показать"}
+                </button>
+                <button onClick={e=>{e.stopPropagation();try{navigator.clipboard.writeText(p.pass);}catch(e){}setToast({msg:"📋 Пароль скопирован",color:C.green});}}
+                  style={{flex:1,padding:"9px 0",borderRadius:8,border:`1px solid ${C.border}`,
+                    background:"transparent",color:C.text,fontSize:12,cursor:"pointer"}}>
+                  📋 Копировать
+                </button>
+              </>}
+              {!p.connected && (
+                <button onClick={e=>{e.stopPropagation();setToast({msg:`🔗 Подключение к ${p.name}`,color:C.accent});}}
+                  style={{width:"100%",padding:"10px 0",borderRadius:8,border:"none",
+                    background:C.accent,color:C.bg,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  🔗 Подключиться
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    ))}
+  </div>;
+}
+
+// ── Diagnostic ──
+function Diagnostic({ setToast }) {
+  const [host, setHost] = useState("8.8.8.8");
+  const [pinging, setPinging] = useState(false);
+  const [pingLog, setPingLog] = useState([]);
+
+  const runPing = () => {
+    if(pinging) return;
+    setPinging(true);
+    setPingLog(l=>[`── Ping ${host} ──`,...l]);
+    let count=0;
+    const t=setInterval(()=>{
+      const ms=Math.floor(Math.random()*25)+4;
+      setPingLog(l=>[`Ответ от ${host}: время=${ms} мс TTL=57`,...l]);
+      count++;
+      if(count>=4){
+        clearInterval(t);
+        setPingLog(l=>[`Статистика: мин=${ms-2} макс=${ms+4} ср=${ms} мс`,...l]);
+        setPinging(false);
+      }
+    },600);
+  };
+
+  const ipInfo = {
+    IPv4:"192.168.1.42", Маска:"255.255.255.0",
+    Шлюз:"192.168.1.1", DNS:"8.8.8.8",
+    SSID:"HomeNetwork_5G", Радио:"802.11ac",
+  };
+
+  return <div style={{display:"flex",flexDirection:"column",gap:12}} className="fade-in">
+    <Card>
+      <div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:10}}>🌐 Сетевая информация</div>
+      {Object.entries(ipInfo).map(([k,v])=>(
+        <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.border}22`}}>
+          <span style={{fontSize:12,color:C.sub}}>{k}</span>
+          <span style={{fontSize:12,color:C.text,fontWeight:600}}>{v}</span>
+        </div>
+      ))}
+    </Card>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+      {[["🔄","Сброс TCP/IP",C.warn],["♻️","DHCP",C.green],["🗑","DNS кэш",C.accent]].map(([ic,lb,cl])=>(
+        <button key={lb} onClick={()=>setToast({msg:`✅ ${lb} выполнен`,color:cl})}
+          style={{padding:"12px 4px",borderRadius:10,border:`1px solid ${cl}44`,background:cl+"18",
+            color:cl,fontSize:11,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <span style={{fontSize:18}}>{ic}</span>{lb}
+        </button>
+      ))}
+    </div>
+
+    <Card>
+      <div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:10}}>📶 Ping / Трассировка</div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <input value={host} onChange={e=>setHost(e.target.value)}
+          style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,
+            background:C.bg,color:C.text,fontSize:13}}/>
+        <button onClick={runPing} disabled={pinging}
+          style={{padding:"10px 18px",borderRadius:8,border:"none",
+            background:pinging?C.border:C.accent,color:C.bg,fontSize:13,fontWeight:700,cursor:pinging?"default":"pointer"}}>
+          {pinging?"⏳":"Ping"}
+        </button>
+      </div>
+      {pingLog.length>0 && (
+        <div style={{background:C.bg,borderRadius:10,padding:12,maxHeight:140,overflow:"auto"}}>
+          {pingLog.map((l,i)=>(
+            <div key={i} style={{fontSize:11,fontFamily:"monospace",padding:"1px 0",
+              color:l.startsWith("──")?C.accent:l.startsWith("Статист")?C.warn:C.green}}>{l}</div>
+          ))}
+        </div>
+      )}
+    </Card>
+  </div>;
+}
+
+// ── App ──
+function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [toast, setToast] = useState(null);
+
+  useEffect(()=>{
+    if(toast){ const t=setTimeout(()=>setToast(null),2200); return ()=>clearTimeout(t); }
+  },[toast]);
+
+  const tabs = [
+    {id:"dashboard",icon:"📡",label:"Главная"},
+    {id:"networks", icon:"🔍",label:"Сети"},
+    {id:"monitor",  icon:"📊",label:"Монитор"},
+    {id:"profiles", icon:"💾",label:"Профили"},
+    {id:"diag",     icon:"🛠",label:"Диагност."},
+  ];
+
+  const content = {
+    dashboard: <Dashboard setToast={setToast}/>,
+    networks:  <Networks  setToast={setToast}/>,
+    monitor:   <Monitor/>,
+    profiles:  <Profiles  setToast={setToast}/>,
+    diag:      <Diagnostic setToast={setToast}/>,
+  };
+
+  return (
+    <div style={{background:C.bg,minHeight:"100vh",display:"flex",justifyContent:"center"}}>
+      <div style={{width:"100%",maxWidth:430,display:"flex",flexDirection:"column",minHeight:"100vh",position:"relative"}}>
+
+        {toast && <Toast msg={toast.msg} color={toast.color}/>}
+
+        {/* Header */}
+        <div style={{background:C.panel,padding:"14px 18px 10px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          position:"sticky",top:0,zIndex:100}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:800,color:C.text}}>📡 WiFi Manager</div>
+            <div style={{fontSize:10,color:C.sub}}>Pro v2.0  •  Mobile</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:C.green,
+              boxShadow:`0 0 8px ${C.green}`}}/>
+            <span style={{fontSize:11,color:C.green}}>HomeNetwork_5G</span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{flex:1,overflowY:"auto",padding:"14px 14px 88px"}}>
+          {content[tab]}
+        </div>
+
+        {/* Bottom nav */}
+        <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
+          width:"100%",maxWidth:430,background:C.panel,borderTop:`1px solid ${C.border}`,
+          display:"flex",padding:"8px 0 14px",zIndex:100}}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                background:"none",border:"none",cursor:"pointer",padding:"4px 0"}}>
+              <span style={{fontSize:19,filter:tab===t.id?"none":"grayscale(0.5) opacity(0.6)"}}>{t.icon}</span>
+              <span style={{fontSize:9,color:tab===t.id?C.accent:C.sub,fontWeight:tab===t.id?700:400}}>
+                {t.label}
+              </span>
+              {tab===t.id && <div style={{width:18,height:2,borderRadius:1,background:C.accent}}/>}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
