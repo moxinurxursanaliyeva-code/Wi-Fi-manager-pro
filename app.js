@@ -207,19 +207,20 @@ SSID: ${cur.ssid}
 IP: 192.168.1.42, Шлюз: 192.168.1.1, DNS: 8.8.8.8
 
 Оцени: качество сигнала, безопасность, диапазон. Дай 1-2 конкретных совета.`;
-
+ЫЫ
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    const data = await resp.json();
-    state.aiResult = data.content?.find(b => b.type === 'text')?.text || 'Не удалось получить ответ.';
+    const resp = await fetch(
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyDpe9430XXL32ucegPRb3l8F0dAwas53Vs',
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }]
+    })
+  }
+);
+const data = await resp.json();
+state.aiResult = data.candidates[0].content.parts[0].text;
   } catch (e) {
     state.aiResult = '⚠️ Ошибка подключения к Claude API.\n\nПриложение работает в демо-режиме. Для активации AI-анализа разверните бэкенд с API-ключом.';
   }
